@@ -1,0 +1,9 @@
+# Local Environment definitions
+.env
+
+# Built Binaries
+main
+/bin/
+
+# Migrations (as requested)
+migrations/

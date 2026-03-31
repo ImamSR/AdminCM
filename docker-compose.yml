@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  fe1:
+    build:
+      context: ./admincmsmartschool
+    env_file:
+      - ./admincmsmartschool/.env
+    restart: unless-stopped
+    networks:
+      - webnet
+
+  be1:
+    build:
+      context: ./admincmsmartschoolbackend
+    env_file:
+      - ./admincmsmartschoolbackend/.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    networks:
+      - webnet
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8082:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - nginx-logs:/var/log/nginx
+    restart: unless-stopped
+    networks:
+      - webnet
+    depends_on:
+      - fe1
+      - be1
+
+  crowdsec:
+    image: crowdsecurity/crowdsec:latest
+    environment:
+      - COLLECTIONS=crowdsecurity/nginx crowdsecurity/http-cve
+    volumes:
+      - crowdsec-db:/var/lib/crowdsec/data/
+      - crowdsec-config:/etc/crowdsec/
+      - nginx-logs:/var/log/nginx:ro
+    restart: unless-stopped
+    networks:
+      - webnet
+    depends_on:
+      - nginx
+
+volumes:
+  nginx-logs:
+  crowdsec-db:
+  crowdsec-config:
+
+networks:
+  webnet:
+    driver: bridge

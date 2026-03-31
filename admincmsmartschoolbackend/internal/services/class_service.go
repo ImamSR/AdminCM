@@ -1,0 +1,246 @@
+package services
+
+import (
+	"database/sql"
+	"encoding/json"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"admincmsmartschoolbackend/internal/database"
+	"admincmsmartschoolbackend/internal/models"
+)
+
+func setCorsHeaders(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	w.Header().Set("Content-Type", "application/json")
+}
+
+func HandleClasses(w http.ResponseWriter, r *http.Request) {
+	setCorsHeaders(w)
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	switch r.Method {
+	case "GET":
+		getClasses(w, r)
+	case "POST":
+		createClass(w, r)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func HandleClassStats(w http.ResponseWriter, r *http.Request) {
+	setCorsHeaders(w)
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	rows, err := database.DB.Query(`
+		SELECT LOWER(COALESCE(unit, '')), COUNT(*) 
+		FROM classes 
+		GROUP BY LOWER(COALESCE(unit, ''))
+	`)
+	if err != nil {
+		http.Error(w, "Query error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var stats []models.ClassStats
+	for rows.Next() {
+		var s models.ClassStats
+		if err := rows.Scan(&s.Unit, &s.Count); err != nil {
+			http.Error(w, "Scan error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		stats = append(stats, s)
+	}
+
+	if len(stats) == 0 {
+		json.NewEncoder(w).Encode([]models.ClassStats{})
+	} else {
+		json.NewEncoder(w).Encode(stats)
+	}
+}
+
+func HandleClassByID(w http.ResponseWriter, r *http.Request) {
+	setCorsHeaders(w)
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	parts := strings.Split(r.URL.Path, "/")
+	idStr := parts[len(parts)-1]
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid class ID", http.StatusBadRequest)
+		return
+	}
+
+	switch r.Method {
+	case "PUT":
+		updateClass(w, r, id)
+	case "DELETE":
+		deleteClass(w, r, id)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func getClasses(w http.ResponseWriter, r *http.Request) {
+	unit := r.URL.Query().Get("unit")
+	
+	query := `
+		SELECT c.id, c.name, COALESCE(c.jenjang, ''), COALESCE(c.unit, ''), c.grade, COALESCE(c.class_name, '')
+		FROM classes c
+	`
+	args := []interface{}{}
+	if unit != "" {
+		query += ` WHERE LOWER(c.unit) = LOWER($1)`
+		args = append(args, unit)
+	}
+	query += ` ORDER BY c.id ASC`
+
+	rows, err := database.DB.Query(query, args...)
+	if err != nil {
+		http.Error(w, "Query error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var classes []models.ClassDetail
+	for rows.Next() {
+		var c models.ClassDetail
+		if err := rows.Scan(&c.ID, &c.Name, &c.Level, &c.Unit, &c.Grade, &c.ClassName); err != nil {
+			http.Error(w, "Scan error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		var studentCount, teacherCount int
+		database.DB.QueryRow(`SELECT COUNT(*) FROM student_classes WHERE class_id = $1`, c.ID).Scan(&studentCount)
+		database.DB.QueryRow(`SELECT COUNT(*) FROM teacher_classes WHERE class_id = $1`, c.ID).Scan(&teacherCount)
+		
+		var mainTeacher sql.NullString
+		err := database.DB.QueryRow(`
+			SELECT STRING_AGG(u.name, ', ')
+			FROM teacher_classes tc 
+			JOIN users u ON tc.user_id = u.id 
+			WHERE tc.class_id = $1 AND tc.is_homeroom = TRUE
+		`, c.ID).Scan(&mainTeacher)
+		
+		if err == nil && mainTeacher.Valid {
+			c.Teacher = mainTeacher.String
+		} else {
+			c.Teacher = ""
+		}
+
+		c.StudentCount = studentCount
+		c.TeacherCount = teacherCount
+
+		classes = append(classes, c)
+	}
+
+	if len(classes) == 0 {
+		json.NewEncoder(w).Encode([]models.ClassDetail{})
+	} else {
+		json.NewEncoder(w).Encode(classes)
+	}
+}
+
+func createClass(w http.ResponseWriter, r *http.Request) {
+	var req models.ClassCreateReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid payload", http.StatusBadRequest)
+		return
+	}
+
+	if req.Name == "" || req.Unit == "" {
+		http.Error(w, "Name and Unit are required", http.StatusBadRequest)
+		return
+	}
+
+	grade := 1
+
+	var newID int
+	err := database.DB.QueryRow(`
+		INSERT INTO classes (name, jenjang, unit, grade, class_name) 
+		VALUES ($1, '', $2, $3, '') RETURNING id
+	`, req.Name, req.Unit, grade).Scan(&newID)
+	
+	if err != nil {
+		http.Error(w, "Insert error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if len(req.TeacherIDs) > 0 {
+		for _, tID := range req.TeacherIDs {
+			_, errIns := database.DB.Exec("INSERT INTO teacher_classes (user_id, class_id, is_homeroom) VALUES ($1, $2, TRUE) ON CONFLICT (user_id, class_id) DO UPDATE SET is_homeroom = TRUE", tID, newID)
+			if errIns != nil {
+				http.Error(w, "Insert teacher mapping error: "+errIns.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]interface{}{"id": newID, "status": "success"})
+}
+
+func updateClass(w http.ResponseWriter, r *http.Request, id int) {
+	var req models.ClassUpdateReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid payload", http.StatusBadRequest)
+		return
+	}
+
+	_, err := database.DB.Exec(`
+		UPDATE classes 
+		SET name = $1
+		WHERE id = $2
+	`, req.Name, id)
+	
+	if err != nil {
+		http.Error(w, "Update error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	database.DB.Exec(`DELETE FROM teacher_classes WHERE class_id = $1 AND is_homeroom = TRUE`, id)
+	
+	if len(req.TeacherIDs) > 0 {
+		for _, tID := range req.TeacherIDs {
+			_, errIns := database.DB.Exec("INSERT INTO teacher_classes (user_id, class_id, is_homeroom) VALUES ($1, $2, TRUE) ON CONFLICT (user_id, class_id) DO UPDATE SET is_homeroom = TRUE", tID, id)
+			if errIns != nil {
+				http.Error(w, "Update teacher mapping error: "+errIns.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{"status": "success"})
+}
+
+func deleteClass(w http.ResponseWriter, _ *http.Request, id int) {
+	_, err := database.DB.Exec(`DELETE FROM classes WHERE id = $1`, id)
+	if err != nil {
+		http.Error(w, "Delete error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{"status": "success"})
+}
