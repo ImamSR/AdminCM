@@ -15,11 +15,15 @@ services:
       context: ./admincmsmartschoolbackend
     env_file:
       - ./admincmsmartschoolbackend/.env
+    environment:
+      - DATABASE_URL=postgres://${DB_USER}:${DB_PASSWORD}@newluminoed-db-1:5432/${DB_NAME}?sslmode=disable
+      - PORT=8080
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
     networks:
       - webnet
+      - newluminoed_app-network
 
   nginx:
     image: nginx:alpine
@@ -57,3 +61,5 @@ volumes:
 networks:
   webnet:
     driver: bridge
+  newluminoed_app-network:
+    external: true
