@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 
+	"admincmsmartschoolbackend/internal/database"
+
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -62,6 +64,23 @@ func RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 
 		if err != nil || !token.Valid {
 			http.Error(w, "Invalid Token", http.StatusUnauthorized)
+			return
+		}
+
+		if !strings.HasSuffix(claims.Email, "@cendekiamuda.sch.id") {
+			http.Error(w, "Invalid email domain. Only @cendekiamuda.sch.id is allowed", http.StatusForbidden)
+			return
+		}
+
+		var actualRole string
+		err = database.DB.QueryRow("SELECT role FROM admin_users WHERE id = $1", claims.ID).Scan(&actualRole)
+		if err != nil {
+			http.Error(w, "User not found or database error", http.StatusForbidden)
+			return
+		}
+
+		if actualRole != claims.Role {
+			http.Error(w, "Role mismatch detected. Please re-login.", http.StatusForbidden)
 			return
 		}
 
