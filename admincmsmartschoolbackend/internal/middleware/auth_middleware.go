@@ -67,8 +67,8 @@ func RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		if !strings.HasSuffix(claims.Email, "@cendekiamuda.sch.id") {
-			http.Error(w, "Invalid email domain. Only @cendekiamuda.sch.id is allowed", http.StatusForbidden)
+		if !strings.HasSuffix(claims.Email, "@cendekiamuda.sch.id") && !strings.HasSuffix(claims.Email, "@kibarcm.id") {
+			http.Error(w, "Invalid email domain. Only @cendekiamuda.sch.id and @kibarcm.id are allowed", http.StatusForbidden)
 			return
 		}
 
