@@ -79,7 +79,7 @@ func HandleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 	`, email).Scan(&user.ID, &user.Name, &user.Email, &user.Role, &user.Unit, &user.IsActive)
 
 	if err != nil {
-		http.Error(w, "User not found in authorized admin list", http.StatusForbidden)
+		http.Error(w, "Error Forbidden", http.StatusForbidden)
 		return
 	}
 
