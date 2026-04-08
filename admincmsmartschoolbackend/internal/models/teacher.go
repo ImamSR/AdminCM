@@ -8,6 +8,7 @@ type TeacherDetail struct {
 	NIP           string `json:"nip"`
 	Qualification string `json:"qualification"`
 	Status        string `json:"status"`
+	Role          string `json:"role"`
 	IsActive      bool   `json:"is_active"`
 }
 
@@ -18,6 +19,7 @@ type TeacherCreateReq struct {
 	NIP           string `json:"nip"`
 	Qualification string `json:"qualification"`
 	Status        string `json:"status"`
+	Role          string `json:"role"`
 }
 
 type TeacherUpdateReq struct {
@@ -27,4 +29,5 @@ type TeacherUpdateReq struct {
 	NIP           string `json:"nip"`
 	Qualification string `json:"qualification"`
 	Status        string `json:"status"`
+	Role          string `json:"role"`
 }

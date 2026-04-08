@@ -5,5 +5,5 @@
 main
 /bin/
 
-# Migrations (as requested)
+# Migrations
 migrations/

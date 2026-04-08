@@ -33,14 +33,14 @@ func HandleDashboardStats(w http.ResponseWriter, r *http.Request) {
 		SELECT COUNT(DISTINCT s.id) 
 		FROM students s
 		JOIN users u ON s.user_id = u.id
-		WHERE u.role = 'siswa' AND ($1 = 'ALL' OR UPPER(u.unit) = $1)
+		WHERE u.role = 'siswa' AND COALESCE(u.is_active, TRUE) = TRUE AND ($1 = 'ALL' OR UPPER(u.unit) = $1)
 	`
 	database.DB.QueryRow(studentQuery, unit).Scan(&stats.TotalStudents)
 
 	teacherQuery := `
 		SELECT COUNT(id) 
 		FROM users u
-		WHERE u.role = 'guru' AND ($1 = 'ALL' OR UPPER(u.unit) = $1)
+		WHERE u.role IN ('guru', 'wali_kelas', 'kepala_sekolah', 'wakil_kepala_sekolah') AND COALESCE(u.is_active, TRUE) = TRUE AND ($1 = 'ALL' OR UPPER(u.unit) = $1)
 	`
 	database.DB.QueryRow(teacherQuery, unit).Scan(&stats.TotalTeachers)
 	classQuery := `

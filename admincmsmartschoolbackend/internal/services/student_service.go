@@ -28,8 +28,9 @@ func HandleStudentStats(w http.ResponseWriter, r *http.Request) {
 		SELECT LOWER(COALESCE(c.unit, '')), COUNT(DISTINCT u.id)
 		FROM users u
 		JOIN student_classes sc ON u.id = sc.user_id
+		JOIN academic_terms at ON sc.academic_term_id = at.id
 		JOIN classes c ON sc.class_id = c.id
-		WHERE u.role = 'siswa'
+		WHERE u.role = 'siswa' AND COALESCE(u.is_active, TRUE) = TRUE AND at.is_active = TRUE
 		GROUP BY LOWER(COALESCE(c.unit, ''))
 	`
 	rows, err := database.DB.Query(query)
@@ -117,9 +118,10 @@ func getStudents(w http.ResponseWriter, r *http.Request) {
 			SELECT u.id, u.name, u.email, COALESCE(sd.nisn, ''), COALESCE(u.unit, ''), c.id, COALESCE(c.name, '')
 			FROM users u
 			JOIN student_classes sc ON u.id = sc.user_id
+			JOIN academic_terms at ON sc.academic_term_id = at.id
 			JOIN classes c ON sc.class_id = c.id
 			LEFT JOIN student_details sd ON u.id = sd.user_id
-			WHERE u.role = 'siswa' AND c.id = $1 AND COALESCE(u.is_active, TRUE) = TRUE
+			WHERE u.role = 'siswa' AND c.id = $1 AND COALESCE(u.is_active, TRUE) = TRUE AND at.is_active = TRUE
 			ORDER BY u.name ASC
 		`
 		rows, err = database.DB.Query(query, classIDStr)
@@ -187,19 +189,45 @@ func createStudent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var newID int
-	err = tx.QueryRow(`
-		INSERT INTO users (name, email, role, unit)
-		VALUES ($1, $2, 'siswa', $3) RETURNING id
-	`, req.Name, req.Email, req.Unit).Scan(&newID)
+	var existingActive bool
+	var existingRole string
 
-	if err != nil {
-		tx.Rollback()
-		if strings.Contains(err.Error(), "unique constraint") {
+	err = tx.QueryRow(`SELECT id, COALESCE(is_active, TRUE), role FROM users WHERE email = $1`, req.Email).Scan(&newID, &existingActive, &existingRole)
+	if err == nil {
+		if existingActive {
+			tx.Rollback()
 			http.Error(w, "Email sudah digunakan oleh pengguna lain.", http.StatusBadRequest)
-		} else {
+			return
+		}
+		if existingRole != "siswa" {
+			tx.Rollback()
+			http.Error(w, "Email ini sudah digunakan oleh akun dengan hak akses selain siswa.", http.StatusBadRequest)
+			return
+		}
+
+		_, err = tx.Exec(`UPDATE users SET is_active = TRUE, name = $1, unit = $2 WHERE id = $3`, req.Name, req.Unit, newID)
+		if err != nil {
+			tx.Rollback()
+			log.Println("Update user for reactivation:", err)
+			http.Error(w, "Error reactivating user record", http.StatusInternalServerError)
+			return
+		}
+	} else if err == sql.ErrNoRows {
+		err = tx.QueryRow(`
+			INSERT INTO users (name, email, role, unit, is_active)
+			VALUES ($1, $2, 'siswa', $3, TRUE) RETURNING id
+		`, req.Name, req.Email, req.Unit).Scan(&newID)
+
+		if err != nil {
+			tx.Rollback()
 			log.Println("Insert user:", err)
 			http.Error(w, "Error creating user record", http.StatusInternalServerError)
+			return
 		}
+	} else {
+		tx.Rollback()
+		log.Println("Check user query:", err)
+		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
 
@@ -211,6 +239,7 @@ func createStudent(w http.ResponseWriter, r *http.Request) {
 	_, err = tx.Exec(`
 		INSERT INTO student_details (user_id, nisn)
 		VALUES ($1, $2)
+		ON CONFLICT (user_id) DO UPDATE SET nisn = EXCLUDED.nisn
 	`, newID, nullableNISN)
 
 	if err != nil {
@@ -226,6 +255,7 @@ func createStudent(w http.ResponseWriter, r *http.Request) {
 
 	_, err = tx.Exec(`
 		INSERT INTO students (user_id, unit) VALUES ($1, $2)
+		ON CONFLICT (user_id) DO UPDATE SET unit = EXCLUDED.unit
 	`, newID, req.Unit)
 
 	if err != nil {
@@ -238,6 +268,7 @@ func createStudent(w http.ResponseWriter, r *http.Request) {
 	_, err = tx.Exec(`
 		INSERT INTO student_classes (user_id, class_id, academic_term_id)
 		VALUES ($1, $2, $3)
+		ON CONFLICT (user_id, academic_term_id) DO UPDATE SET class_id = EXCLUDED.class_id
 	`, newID, req.ClassID, termID)
 
 	if err != nil {
@@ -305,7 +336,7 @@ func updateStudent(w http.ResponseWriter, r *http.Request, id int) {
 }
 
 func deleteStudent(w http.ResponseWriter, _ *http.Request, id int) {
-	_, err := database.DB.Exec(`DELETE FROM users WHERE id = $1 AND role = 'siswa'`, id)
+	_, err := database.DB.Exec(`UPDATE users SET is_active = FALSE WHERE id = $1 AND role = 'siswa'`, id)
 	if err != nil {
 		log.Println("Delete user:", err)
 		http.Error(w, "Delete error", http.StatusInternalServerError)
@@ -362,20 +393,34 @@ func HandleBulkStudents(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var newID int
-		err = tx.QueryRow(`
-			INSERT INTO users (name, email, role, unit)
-			VALUES ($1, $2, 'siswa', $3) 
-			ON CONFLICT (email) DO NOTHING
-			RETURNING id
-		`, student.Name, student.Email, req.Unit).Scan(&newID)
-
-		if err == sql.ErrNoRows {
-			err = tx.QueryRow(`SELECT id FROM users WHERE email = $1`, student.Email).Scan(&newID)
+		var existingActive bool
+		var existingRole string
+		err = tx.QueryRow(`SELECT id, COALESCE(is_active, TRUE), role FROM users WHERE email = $1`, student.Email).Scan(&newID, &existingActive, &existingRole)
+		
+		if err == nil {
+			if existingRole != "siswa" {
+				continue // Skip importing since they are not a student
+			}
+			if !existingActive {
+				_, err = tx.Exec(`UPDATE users SET is_active = TRUE, name = $1, unit = $2 WHERE id = $3`, student.Name, req.Unit, newID)
+				if err != nil {
+					log.Println("Update bulk user err:", err)
+					continue
+				}
+			}
+		} else if err == sql.ErrNoRows {
+			err = tx.QueryRow(`
+				INSERT INTO users (name, email, role, unit, is_active)
+				VALUES ($1, $2, 'siswa', $3, TRUE) 
+				RETURNING id
+			`, student.Name, student.Email, req.Unit).Scan(&newID)
+			
 			if err != nil {
+				log.Println("Insert bulk user err:", err)
 				continue
 			}
-		} else if err != nil {
-			log.Println("Insert bulk user err:", err)
+		} else {
+			log.Println("Check bulk user exist err:", err)
 			continue
 		}
 

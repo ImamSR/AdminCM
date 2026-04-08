@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"admincmsmartschoolbackend/internal/database"
 	"admincmsmartschoolbackend/internal/middleware"
@@ -22,6 +23,16 @@ func main() {
 	http.HandleFunc("/api/v1/admins/", middleware.RequireAuth(services.HandleAdminByID))
 	http.HandleFunc("/api/v1/banners", middleware.RequireAuth(services.HandleBanners))
 	http.HandleFunc("/api/v1/banners/", middleware.RequireAuth(services.HandleBannerByID))
+	
+	http.HandleFunc("/api/v1/academic-terms", middleware.RequireAuth(services.HandleAcademicTerms))
+	http.HandleFunc("/api/v1/academic-terms/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/active") {
+			middleware.RequireAuth(services.HandleActiveAcademicTerm)(w, r)
+			return
+		}
+		middleware.RequireAuth(services.HandleAcademicTermByID)(w, r)
+	})
+
 	http.HandleFunc("/api/v1/subjects", middleware.RequireAuth(services.HandleSubjects))
 	http.HandleFunc("/api/v1/subjects/", middleware.RequireAuth(services.HandleSubjectByID))
 	http.HandleFunc("/api/v1/units", middleware.RequireAuth(services.HandleUnits))

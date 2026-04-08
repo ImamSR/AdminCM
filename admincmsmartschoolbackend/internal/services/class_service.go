@@ -133,15 +133,29 @@ func getClasses(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var studentCount, teacherCount int
-		database.DB.QueryRow(`SELECT COUNT(*) FROM student_classes WHERE class_id = $1`, c.ID).Scan(&studentCount)
-		database.DB.QueryRow(`SELECT COUNT(*) FROM teacher_classes WHERE class_id = $1`, c.ID).Scan(&teacherCount)
+		database.DB.QueryRow(`
+			SELECT COUNT(*) 
+			FROM student_classes sc 
+			JOIN academic_terms at ON sc.academic_term_id = at.id
+			JOIN users u ON sc.user_id = u.id 
+			WHERE sc.class_id = $1 AND COALESCE(u.is_active, TRUE) = TRUE AND at.is_active = TRUE
+		`, c.ID).Scan(&studentCount)
+		
+		database.DB.QueryRow(`
+			SELECT COUNT(*) 
+			FROM teacher_classes tc 
+			JOIN academic_terms at ON tc.academic_term_id = at.id
+			JOIN users u ON tc.user_id = u.id 
+			WHERE tc.class_id = $1 AND COALESCE(u.is_active, TRUE) = TRUE AND at.is_active = TRUE
+		`, c.ID).Scan(&teacherCount)
 		
 		var mainTeacher sql.NullString
 		err := database.DB.QueryRow(`
 			SELECT STRING_AGG(u.name, ', ')
 			FROM teacher_classes tc 
+			JOIN academic_terms at ON tc.academic_term_id = at.id
 			JOIN users u ON tc.user_id = u.id 
-			WHERE tc.class_id = $1 AND tc.is_homeroom = TRUE
+			WHERE tc.class_id = $1 AND tc.is_homeroom = TRUE AND COALESCE(u.is_active, TRUE) = TRUE AND at.is_active = TRUE
 		`, c.ID).Scan(&mainTeacher)
 		
 		if err == nil && mainTeacher.Valid {

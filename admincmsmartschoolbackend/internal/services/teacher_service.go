@@ -77,10 +77,11 @@ func getTeachers(w http.ResponseWriter, r *http.Request) {
 			COALESCE(t.nip, ''), 
 			COALESCE(t.qualification, ''), 
 			COALESCE(t.status, ''),
+			COALESCE(u.role, 'guru'),
 			COALESCE(u.is_active, TRUE)
 		FROM users u
 		LEFT JOIN teachers t ON u.id = t.user_id
-		WHERE u.role IN ('guru', 'wali_kelas') AND COALESCE(u.is_active, TRUE) = TRUE
+		WHERE u.role IN ('guru', 'wakil_kepala_sekolah', 'kepala_sekolah') AND COALESCE(u.is_active, TRUE) = TRUE
 	`
 	
 	var rows *sql.Rows
@@ -102,7 +103,7 @@ func getTeachers(w http.ResponseWriter, r *http.Request) {
 	var teachers []models.TeacherDetail
 	for rows.Next() {
 		var t models.TeacherDetail
-		if err := rows.Scan(&t.ID, &t.Name, &t.Email, &t.Unit, &t.NIP, &t.Qualification, &t.Status, &t.IsActive); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.Email, &t.Unit, &t.NIP, &t.Qualification, &t.Status, &t.Role, &t.IsActive); err != nil {
 			http.Error(w, "Scan error: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -144,26 +145,63 @@ func createTeacher(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	roleToInsert := req.Role
+	if roleToInsert == "" {
+		roleToInsert = "guru"
+	}
+
 	var newUserID int
-	err = tx.QueryRow(`
-		INSERT INTO users (email, name, role, unit, is_active) 
-		VALUES ($1, $2, $3, $4, TRUE) RETURNING id
-	`, req.Email, req.Name, "guru", req.Unit).Scan(&newUserID)
+	var existingActive bool
+	var existingRole string
 	
-	if err != nil {
+	err = tx.QueryRow(`SELECT id, COALESCE(is_active, TRUE), role FROM users WHERE email = $1`, req.Email).Scan(&newUserID, &existingActive, &existingRole)
+	if err == nil {
+		if existingActive {
+			tx.Rollback()
+			http.Error(w, "Email sudah digunakan oleh pengguna aktif lain.", http.StatusBadRequest)
+			return
+		}
+		if existingRole != "guru" && existingRole != "wali_kelas" && existingRole != "kepala_sekolah" && existingRole != "wakil_kepala_sekolah" {
+			tx.Rollback()
+			http.Error(w, "Email ini sudah digunakan oleh pengguna dengan hak akses selain guru.", http.StatusBadRequest)
+			return
+		}
+		
+		_, err = tx.Exec(`UPDATE users SET is_active = TRUE, name = $1, unit = $2, role = $3 WHERE id = $4`, req.Name, req.Unit, roleToInsert, newUserID)
+		if err != nil {
+			tx.Rollback()
+			http.Error(w, "Error reactivating teacher user", http.StatusInternalServerError)
+			return
+		}
+	} else if err == sql.ErrNoRows {
+		err = tx.QueryRow(`
+			INSERT INTO users (email, name, role, unit, is_active) 
+			VALUES ($1, $2, $3, $4, TRUE) RETURNING id
+		`, req.Email, req.Name, roleToInsert, req.Unit).Scan(&newUserID)
+		
+		if err != nil {
+			tx.Rollback()
+			http.Error(w, "User Insert error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	} else {
 		tx.Rollback()
-		http.Error(w, "User Insert error: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	_, err = tx.Exec(`
 		INSERT INTO teachers (user_id, qualification, status, nip) 
 		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (user_id) DO UPDATE 
+		SET qualification = EXCLUDED.qualification, 
+		    status = EXCLUDED.status, 
+		    nip = EXCLUDED.nip
 	`, newUserID, req.Qualification, req.Status, req.NIP)
 	
 	if err != nil {
 		tx.Rollback()
-		http.Error(w, "Teacher Insert error: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Teacher Insert/Update error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -203,15 +241,15 @@ func updateTeacher(w http.ResponseWriter, r *http.Request, id int) {
 	if claims.Role != "superadmin" {
 		res, err = tx.Exec(`
 			UPDATE users 
-			SET name = $1, email = $2, unit = $3 
-			WHERE id = $4 AND role IN ('guru', 'wali_kelas') AND LOWER($5) = ANY(string_to_array(LOWER(unit), ','))
-		`, req.Name, req.Email, req.Unit, id, claims.Unit)
+			SET name = $1, email = $2, unit = $3, role = $4 
+			WHERE id = $5 AND role IN ('guru', 'wakil_kepala_sekolah', 'kepala_sekolah') AND LOWER($6) = ANY(string_to_array(LOWER(unit), ','))
+		`, req.Name, req.Email, req.Unit, req.Role, id, claims.Unit)
 	} else {
 		res, err = tx.Exec(`
 			UPDATE users 
-			SET name = $1, email = $2, unit = $3 
-			WHERE id = $4 AND role IN ('guru', 'wali_kelas')
-		`, req.Name, req.Email, req.Unit, id)
+			SET name = $1, email = $2, unit = $3, role = $4 
+			WHERE id = $5 AND role IN ('guru', 'wakil_kepala_sekolah', 'kepala_sekolah')
+		`, req.Name, req.Email, req.Unit, req.Role, id)
 	}
 	
 	if err != nil {
@@ -227,30 +265,19 @@ func updateTeacher(w http.ResponseWriter, r *http.Request, id int) {
 		return
 	}
 
-	res, err = tx.Exec(`
-		UPDATE teachers 
-		SET qualification = $1, status = $2, nip = $3 
-		WHERE user_id = $4
-	`, req.Qualification, req.Status, req.NIP, id)
+	_, err = tx.Exec(`
+		INSERT INTO teachers (user_id, qualification, status, nip) 
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (user_id) DO UPDATE 
+		SET qualification = EXCLUDED.qualification, 
+		    status = EXCLUDED.status, 
+		    nip = EXCLUDED.nip
+	`, id, req.Qualification, req.Status, req.NIP)
 	
 	if err != nil {
 		tx.Rollback()
-		http.Error(w, "Teacher update error: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Teacher update/insert error: "+err.Error(), http.StatusInternalServerError)
 		return
-	}
-
-	tRows, _ := res.RowsAffected()
-	if tRows == 0 {
-		_, err = tx.Exec(`
-			INSERT INTO teachers (user_id, qualification, status, nip) 
-			VALUES ($1, $2, $3, $4)
-		`, id, req.Qualification, req.Status, req.NIP)
-		
-		if err != nil {
-			tx.Rollback()
-			http.Error(w, "Teacher Insert missing error: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -275,13 +302,13 @@ func deleteTeacher(w http.ResponseWriter, r *http.Request, id int) {
 		res, err = database.DB.Exec(`
 			UPDATE users 
 			SET is_active = FALSE 
-			WHERE id = $1 AND role IN ('guru', 'wali_kelas') AND LOWER($2) = ANY(string_to_array(LOWER(unit), ','))
+			WHERE id = $1 AND role IN ('guru', 'wakil_kepala_sekolah', 'kepala_sekolah') AND LOWER($2) = ANY(string_to_array(LOWER(unit), ','))
 		`, id, claims.Unit)
 	} else {
 		res, err = database.DB.Exec(`
 			UPDATE users 
 			SET is_active = FALSE 
-			WHERE id = $1 AND role IN ('guru', 'wali_kelas')
+			WHERE id = $1 AND role IN ('guru', 'wakil_kepala_sekolah', 'kepala_sekolah')
 		`, id)
 	}
 	
