@@ -55,7 +55,6 @@ func HandleClassTeacherUnbind(w http.ResponseWriter, r *http.Request) {
 	}
 
 	parts := strings.Split(r.URL.Path, "/")
-	// /api/v1/class-unbind-teacher/{class_id}/{user_id}
 	classIDStr := parts[len(parts)-2]
 	userIDStr := parts[len(parts)-1]
 

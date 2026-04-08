@@ -17,11 +17,12 @@ func HandleSubjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Method == "GET" {
+	switch r.Method {
+	case "GET":
 		getSubjects(w, r)
-	} else if r.Method == "POST" {
+	case "POST":
 		createSubject(w, r)
-	} else {
+	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
@@ -40,11 +41,12 @@ func HandleSubjectByID(w http.ResponseWriter, r *http.Request) {
 	}
 	id := parts[4]
 
-	if r.Method == "PUT" {
+	switch r.Method {
+	case "PUT":
 		updateSubject(w, r, id)
-	} else if r.Method == "DELETE" {
+	case "DELETE":
 		deleteSubject(w, r, id)
-	} else {
+	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
@@ -138,7 +140,7 @@ func updateSubject(w http.ResponseWriter, r *http.Request, id string) {
 	})
 }
 
-func deleteSubject(w http.ResponseWriter, r *http.Request, id string) {
+func deleteSubject(w http.ResponseWriter, _ *http.Request, id string) {
 	res, err := database.DB.Exec(`DELETE FROM subjects WHERE id = $1`, id)
 	if err != nil {
 		http.Error(w, "Delete error: "+err.Error(), http.StatusInternalServerError)

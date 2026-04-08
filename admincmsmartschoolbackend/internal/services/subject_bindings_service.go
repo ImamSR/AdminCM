@@ -112,7 +112,6 @@ func bindTeacherToSubject(w http.ResponseWriter, r *http.Request, subjectID int)
 		return
 	}
 
-	// need unit from subject
 	var unit string
 	err := database.DB.QueryRow("SELECT unit FROM subjects WHERE id = $1", subjectID).Scan(&unit)
 	if err != nil {
@@ -122,7 +121,6 @@ func bindTeacherToSubject(w http.ResponseWriter, r *http.Request, subjectID int)
 
 	if len(req.UserIDs) > 0 {
 		for _, uID := range req.UserIDs {
-			// On conflict do nothing is safer, using standard insert and ignore error or using ON CONFLICT user_id subject_id if it's unique
 			_, err := database.DB.Exec(`
 				INSERT INTO teacher_subjects (user_id, subject_id, unit)
 				VALUES ($1, $2, $3)
@@ -130,8 +128,6 @@ func bindTeacherToSubject(w http.ResponseWriter, r *http.Request, subjectID int)
 			`, uID, subjectID, unit)
 			
 			if err != nil {
-				// if ON CONFLICT DO NOTHING fails because constraint name is not specified or standard PostgreSQL doesn't like it without target
-				// we can just catch errors
 				if !strings.Contains(err.Error(), "unique constraint") {
 					log.Println("Bind teacher subject error:", err)
 				}
@@ -160,11 +156,12 @@ func HandleSubjectStudentsBinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Method == "GET" {
+	switch r.Method {
+	case "GET":
 		getSubjectStudents(w, subjectID)
-	} else if r.Method == "POST" {
+	case "POST":
 		bindStudentToSubject(w, r, subjectID)
-	} else {
+	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
@@ -247,7 +244,7 @@ func bindStudentToSubject(w http.ResponseWriter, r *http.Request, subjectID int)
 
 	var termID int
 	err := database.DB.QueryRow("SELECT id FROM academic_terms ORDER BY id DESC LIMIT 1").Scan(&termID)
-	if err != nil { // Handle missing term logic simply
+	if err != nil {
 		_ = database.DB.QueryRow("INSERT INTO academic_terms (term_name, year) VALUES ('Semester 1', '2026/2027') RETURNING id").Scan(&termID)
 	}
 
@@ -286,7 +283,6 @@ func bindStudentToSubject(w http.ResponseWriter, r *http.Request, subjectID int)
 
 	if len(req.ClassIDs) > 0 {
 		for _, cID := range req.ClassIDs {
-			// Find all students in this class for the current term and bind them
 			_, err := database.DB.Exec(`
 				INSERT INTO student_subjects (user_id, subject_id, class_id, academic_term_id)
 				SELECT user_id, $1, class_id, academic_term_id

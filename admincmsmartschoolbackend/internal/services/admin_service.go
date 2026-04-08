@@ -54,7 +54,7 @@ func HandleAdminByID(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func getAdminsList(w http.ResponseWriter, r *http.Request) {
+func getAdminsList(w http.ResponseWriter, _ *http.Request) {
 	query := `
 		SELECT id, name, email, role, COALESCE(unit, ''), COALESCE(is_active, TRUE)
 		FROM admin_users
