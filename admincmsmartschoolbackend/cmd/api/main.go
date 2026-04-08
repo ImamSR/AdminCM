@@ -22,6 +22,8 @@ func main() {
 	http.HandleFunc("/api/v1/admins/", middleware.RequireAuth(services.HandleAdminByID))
 	http.HandleFunc("/api/v1/banners", middleware.RequireAuth(services.HandleBanners))
 	http.HandleFunc("/api/v1/banners/", middleware.RequireAuth(services.HandleBannerByID))
+	http.HandleFunc("/api/v1/subjects", middleware.RequireAuth(services.HandleSubjects))
+	http.HandleFunc("/api/v1/subjects/", middleware.RequireAuth(services.HandleSubjectByID))
 	http.HandleFunc("/api/v1/units", middleware.RequireAuth(services.HandleUnits))
 	http.HandleFunc("/api/v1/classes/stats", middleware.RequireAuth(services.HandleClassStats))
 	http.HandleFunc("/api/v1/classes", middleware.RequireAuth(services.HandleClasses))
@@ -38,6 +40,11 @@ func main() {
 	http.HandleFunc("/api/v1/class-unbind-teacher/", middleware.RequireAuth(services.HandleClassTeacherUnbind))
 	http.HandleFunc("/api/v1/class-students/", middleware.RequireAuth(services.HandleClassStudentsBinding))
 	http.HandleFunc("/api/v1/class-unbind-student/", middleware.RequireAuth(services.HandleClassStudentUnbind))
+
+	http.HandleFunc("/api/v1/subject-teachers/", middleware.RequireAuth(services.HandleSubjectTeachers))
+	http.HandleFunc("/api/v1/subject-unbind-teacher/", middleware.RequireAuth(services.HandleSubjectTeacherUnbind))
+	http.HandleFunc("/api/v1/subject-students/", middleware.RequireAuth(services.HandleSubjectStudentsBinding))
+	http.HandleFunc("/api/v1/subject-unbind-student/", middleware.RequireAuth(services.HandleSubjectStudentUnbind))
 
 	port := os.Getenv("PORT")
 

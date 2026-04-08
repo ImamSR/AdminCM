@@ -12,7 +12,8 @@ import (
 )
 
 type BindingReq struct {
-	UserIDs []int `json:"user_ids"`
+	UserIDs  []int `json:"user_ids"`
+	ClassIDs []int `json:"class_ids"`
 }
 
 func HandleClassTeachers(w http.ResponseWriter, r *http.Request) {
