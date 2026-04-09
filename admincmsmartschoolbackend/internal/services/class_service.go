@@ -3,6 +3,7 @@ package services
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -212,6 +213,18 @@ func createClass(w http.ResponseWriter, r *http.Request) {
 
 	if len(req.TeacherIDs) > 0 {
 		for _, tID := range req.TeacherIDs {
+			var isValid bool
+			database.DB.QueryRow(`
+				SELECT EXISTS(
+					SELECT 1 FROM users u JOIN classes c ON c.id = $2 
+					WHERE u.id = $1 AND LOWER(c.unit) = ANY(string_to_array(LOWER(u.unit), ','))
+				)
+			`, tID, newID).Scan(&isValid)
+			if !isValid {
+				log.Printf("Blocked invalid cross-unit homeroom binding. Teacher %d to Class %d", tID, newID)
+				continue
+			}
+
 			_, errIns := database.DB.Exec("INSERT INTO teacher_classes (user_id, class_id, is_homeroom, academic_term_id) VALUES ($1, $2, TRUE, $3) ON CONFLICT (user_id, class_id, academic_term_id) DO UPDATE SET is_homeroom = TRUE", tID, newID, termID)
 			if errIns != nil {
 				http.Error(w, "Insert teacher mapping error: "+errIns.Error(), http.StatusInternalServerError)
@@ -252,6 +265,18 @@ func updateClass(w http.ResponseWriter, r *http.Request, id int) {
 	
 	if len(req.TeacherIDs) > 0 {
 		for _, tID := range req.TeacherIDs {
+			var isValid bool
+			database.DB.QueryRow(`
+				SELECT EXISTS(
+					SELECT 1 FROM users u JOIN classes c ON c.id = $2 
+					WHERE u.id = $1 AND LOWER(c.unit) = ANY(string_to_array(LOWER(u.unit), ','))
+				)
+			`, tID, id).Scan(&isValid)
+			if !isValid {
+				log.Printf("Blocked invalid cross-unit homeroom binding. Teacher %d to Class %d", tID, id)
+				continue
+			}
+
 			_, errIns := database.DB.Exec("INSERT INTO teacher_classes (user_id, class_id, is_homeroom, academic_term_id) VALUES ($1, $2, TRUE, $3) ON CONFLICT (user_id, class_id, academic_term_id) DO UPDATE SET is_homeroom = TRUE", tID, id, termID)
 			if errIns != nil {
 				http.Error(w, "Update teacher mapping error: "+errIns.Error(), http.StatusInternalServerError)

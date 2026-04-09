@@ -76,8 +76,10 @@ func getSubjectTeachers(w http.ResponseWriter, subjectID int) {
 		SELECT DISTINCT u.id, u.name, u.email, COALESCE(u.unit, ''), COALESCE(t.nip, ''), COALESCE(t.qualification, ''), COALESCE(t.status, ''), COALESCE(u.is_active, TRUE)
 		FROM users u
 		JOIN teacher_subjects ts ON u.id = ts.user_id
+		JOIN academic_terms at ON ts.academic_term_id = at.id
 		LEFT JOIN teachers t ON u.id = t.user_id
 		WHERE ts.subject_id = $1 AND COALESCE(u.is_active, TRUE) = TRUE
+		  AND at.id = (SELECT id FROM academic_terms WHERE is_active = TRUE ORDER BY id DESC LIMIT 1)
 		ORDER BY u.name ASC
 	`
 	rows, err := database.DB.Query(query, subjectID)
@@ -119,13 +121,31 @@ func bindTeacherToSubject(w http.ResponseWriter, r *http.Request, subjectID int)
 		return
 	}
 
+	var termID int
+	err = database.DB.QueryRow("SELECT id FROM academic_terms WHERE is_active = TRUE LIMIT 1").Scan(&termID)
+	if err != nil {
+		_ = database.DB.QueryRow("INSERT INTO academic_terms (term_name, year, is_active) VALUES ('Semester 1', '2026/2027', TRUE) RETURNING id").Scan(&termID)
+	}
+
 	if len(req.UserIDs) > 0 {
 		for _, uID := range req.UserIDs {
+			var isValid bool
+			database.DB.QueryRow(`
+				SELECT EXISTS(
+					SELECT 1 FROM users u 
+					WHERE u.id = $1 AND LOWER($2) = ANY(string_to_array(LOWER(u.unit), ','))
+				)
+			`, uID, unit).Scan(&isValid)
+			if !isValid {
+				log.Printf("Blocked invalid cross-unit binding. Teacher %d to Subject %d (unit %s)", uID, subjectID, unit)
+				continue
+			}
+
 			_, err := database.DB.Exec(`
-				INSERT INTO teacher_subjects (user_id, subject_id, unit)
-				VALUES ($1, $2, $3)
+				INSERT INTO teacher_subjects (user_id, subject_id, unit, academic_term_id)
+				VALUES ($1, $2, $3, $4)
 				ON CONFLICT DO NOTHING
-			`, uID, subjectID, unit)
+			`, uID, subjectID, unit, termID)
 			
 			if err != nil {
 				if !strings.Contains(err.Error(), "unique constraint") {

@@ -127,6 +127,18 @@ func bindTeacherToClass(w http.ResponseWriter, r *http.Request, classID int) {
 
 	if len(req.UserIDs) > 0 {
 		for _, uID := range req.UserIDs {
+			var isValid bool
+			database.DB.QueryRow(`
+				SELECT EXISTS(
+					SELECT 1 FROM users u JOIN classes c ON c.id = $2 
+					WHERE u.id = $1 AND LOWER(c.unit) = ANY(string_to_array(LOWER(u.unit), ','))
+				)
+			`, uID, classID).Scan(&isValid)
+			if !isValid {
+				log.Printf("Blocked invalid cross-unit binding. Teacher %d to Class %d", uID, classID)
+				continue
+			}
+
 			_, err := database.DB.Exec(`
 				INSERT INTO teacher_classes (user_id, class_id, is_homeroom, academic_term_id)
 				VALUES ($1, $2, FALSE, $3)
