@@ -78,11 +78,13 @@ func HandleClassTeacherUnbind(w http.ResponseWriter, r *http.Request) {
 
 func getClassTeachers(w http.ResponseWriter, classID int) {
 	query := `
-		SELECT u.id, u.name, u.email, COALESCE(u.unit, ''), COALESCE(t.nip, ''), COALESCE(t.qualification, ''), COALESCE(t.status, ''), COALESCE(u.is_active, TRUE)
+		SELECT DISTINCT u.id, u.name, u.email, COALESCE(u.unit, ''), COALESCE(t.nip, ''), COALESCE(t.qualification, ''), COALESCE(t.status, ''), COALESCE(u.is_active, TRUE)
 		FROM users u
 		JOIN teacher_classes tc ON u.id = tc.user_id
+		JOIN academic_terms at ON tc.academic_term_id = at.id
 		LEFT JOIN teachers t ON u.id = t.user_id
 		WHERE tc.class_id = $1 AND tc.is_homeroom = FALSE AND COALESCE(u.is_active, TRUE) = TRUE
+		  AND at.id = (SELECT id FROM academic_terms WHERE is_active = TRUE ORDER BY id DESC LIMIT 1)
 		ORDER BY u.name ASC
 	`
 	rows, err := database.DB.Query(query, classID)
@@ -117,13 +119,19 @@ func bindTeacherToClass(w http.ResponseWriter, r *http.Request, classID int) {
 		return
 	}
 
+	var termID int
+	errTerm := database.DB.QueryRow("SELECT id FROM academic_terms WHERE is_active = TRUE LIMIT 1").Scan(&termID)
+	if errTerm != nil {
+		_ = database.DB.QueryRow("INSERT INTO academic_terms (term_name, year, is_active) VALUES ('Semester 1', '2026/2027', TRUE) RETURNING id").Scan(&termID)
+	}
+
 	if len(req.UserIDs) > 0 {
 		for _, uID := range req.UserIDs {
 			_, err := database.DB.Exec(`
-				INSERT INTO teacher_classes (user_id, class_id, is_homeroom)
-				VALUES ($1, $2, FALSE)
-				ON CONFLICT (user_id, class_id) DO UPDATE SET is_homeroom = FALSE
-			`, uID, classID)
+				INSERT INTO teacher_classes (user_id, class_id, is_homeroom, academic_term_id)
+				VALUES ($1, $2, FALSE, $3)
+				ON CONFLICT (user_id, class_id, academic_term_id) DO UPDATE SET is_homeroom = FALSE
+			`, uID, classID, termID)
 			
 			if err != nil {
 				log.Println("Bind teacher error:", err)
@@ -203,7 +211,10 @@ func bindStudentToClass(w http.ResponseWriter, r *http.Request, classID int) {
 	}
 
 	var termID int
-	database.DB.QueryRow("SELECT id FROM academic_terms ORDER BY id DESC LIMIT 1").Scan(&termID)
+	errTerm := database.DB.QueryRow("SELECT id FROM academic_terms WHERE is_active = TRUE LIMIT 1").Scan(&termID)
+	if errTerm != nil {
+		_ = database.DB.QueryRow("INSERT INTO academic_terms (term_name, year, is_active) VALUES ('Semester 1', '2026/2027', TRUE) RETURNING id").Scan(&termID)
+	}
 
 	if len(req.UserIDs) > 0 {
 		for _, uID := range req.UserIDs {

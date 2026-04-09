@@ -153,12 +153,22 @@ func createTeacher(w http.ResponseWriter, r *http.Request) {
 	var newUserID int
 	var existingActive bool
 	var existingRole string
+	var existingUnit string
 	
-	err = tx.QueryRow(`SELECT id, COALESCE(is_active, TRUE), role FROM users WHERE email = $1`, req.Email).Scan(&newUserID, &existingActive, &existingRole)
-	if err == nil {
+	err = tx.QueryRow(`SELECT id, COALESCE(is_active, TRUE), role, COALESCE(unit, '') FROM users WHERE email = $1`, req.Email).Scan(&newUserID, &existingActive, &existingRole, &existingUnit)
+	switch err {
+	case nil:
 		if existingActive {
 			tx.Rollback()
-			http.Error(w, "Email sudah digunakan oleh pengguna aktif lain.", http.StatusBadRequest)
+			if existingRole == "guru" || existingRole == "wali_kelas" || existingRole == "kepala_sekolah" || existingRole == "wakil_kepala_sekolah" {
+				if !strings.EqualFold(existingUnit, req.Unit) {
+					http.Error(w, "Gagal: Email sudah terdaftar sebagai pengajar aktif di unit " + strings.ToUpper(existingUnit) + ".", http.StatusBadRequest)
+				} else {
+					http.Error(w, "Gagal: Pengajar dengan email ini sudah terdaftar dan berstatus aktif.", http.StatusBadRequest)
+				}
+			} else {
+				http.Error(w, "Gagal: Email ini sudah digunakan oleh pengguna aktif (" + existingRole + ").", http.StatusBadRequest)
+			}
 			return
 		}
 		if existingRole != "guru" && existingRole != "wali_kelas" && existingRole != "kepala_sekolah" && existingRole != "wakil_kepala_sekolah" {
@@ -173,7 +183,7 @@ func createTeacher(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Error reactivating teacher user", http.StatusInternalServerError)
 			return
 		}
-	} else if err == sql.ErrNoRows {
+	case sql.ErrNoRows:
 		err = tx.QueryRow(`
 			INSERT INTO users (email, name, role, unit, is_active) 
 			VALUES ($1, $2, $3, $4, TRUE) RETURNING id
@@ -184,7 +194,7 @@ func createTeacher(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "User Insert error: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-	} else {
+	default:
 		tx.Rollback()
 		http.Error(w, "Database error: "+err.Error(), http.StatusInternalServerError)
 		return

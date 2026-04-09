@@ -74,7 +74,7 @@ func HandleActiveAcademicTerm(w http.ResponseWriter, r *http.Request) {
 	}
 
 	parts := strings.Split(r.URL.Path, "/")
-	idStr := parts[len(parts)-2] // /api/v1/academic-terms/{id}/active
+	idStr := parts[len(parts)-2]
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
 		http.Error(w, "Invalid term ID", http.StatusBadRequest)
@@ -87,7 +87,6 @@ func HandleActiveAcademicTerm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set all terms to inactive
 	_, err = tx.Exec("UPDATE academic_terms SET is_active = FALSE")
 	if err != nil {
 		tx.Rollback()
@@ -95,7 +94,6 @@ func HandleActiveAcademicTerm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set target to active
 	_, err = tx.Exec("UPDATE academic_terms SET is_active = TRUE WHERE id = $1", id)
 	if err != nil {
 		tx.Rollback()
@@ -156,7 +154,6 @@ func createAcademicTerm(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.IsActive {
-		// Reset others if this is created as active
 		database.DB.Exec("UPDATE academic_terms SET is_active = FALSE")
 	}
 

@@ -24,16 +24,16 @@ func HandleStudentStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := `
+	rows, err := database.DB.Query(`
 		SELECT LOWER(COALESCE(c.unit, '')), COUNT(DISTINCT u.id)
 		FROM users u
 		JOIN student_classes sc ON u.id = sc.user_id
 		JOIN academic_terms at ON sc.academic_term_id = at.id
 		JOIN classes c ON sc.class_id = c.id
-		WHERE u.role = 'siswa' AND COALESCE(u.is_active, TRUE) = TRUE AND at.is_active = TRUE
+		WHERE u.role = 'siswa' AND COALESCE(u.is_active, TRUE) = TRUE 
+		  AND at.id = (SELECT id FROM academic_terms WHERE is_active = TRUE ORDER BY id DESC LIMIT 1)
 		GROUP BY LOWER(COALESCE(c.unit, ''))
-	`
-	rows, err := database.DB.Query(query)
+	`)
 	if err != nil {
 		log.Println("Stats error:", err)
 		http.Error(w, "Query error", http.StatusInternalServerError)
@@ -115,19 +115,20 @@ func getStudents(w http.ResponseWriter, r *http.Request) {
 
 	if classIDStr != "" {
 		query = `
-			SELECT u.id, u.name, u.email, COALESCE(sd.nisn, ''), COALESCE(u.unit, ''), c.id, COALESCE(c.name, '')
+			SELECT DISTINCT u.id, u.name, u.email, COALESCE(sd.nisn, ''), COALESCE(u.unit, ''), c.id, COALESCE(c.name, '')
 			FROM users u
 			JOIN student_classes sc ON u.id = sc.user_id
 			JOIN academic_terms at ON sc.academic_term_id = at.id
 			JOIN classes c ON sc.class_id = c.id
 			LEFT JOIN student_details sd ON u.id = sd.user_id
-			WHERE u.role = 'siswa' AND c.id = $1 AND COALESCE(u.is_active, TRUE) = TRUE AND at.is_active = TRUE
+			WHERE u.role = 'siswa' AND c.id = $1 AND COALESCE(u.is_active, TRUE) = TRUE 
+			  AND at.id = (SELECT id FROM academic_terms WHERE is_active = TRUE ORDER BY id DESC LIMIT 1)
 			ORDER BY u.name ASC
 		`
 		rows, err = database.DB.Query(query, classIDStr)
 	} else {
 		query = `
-			SELECT u.id, u.name, u.email, COALESCE(sd.nisn, ''), COALESCE(u.unit, ''), 0, ''
+			SELECT DISTINCT u.id, u.name, u.email, COALESCE(sd.nisn, ''), COALESCE(u.unit, ''), 0, ''
 			FROM users u
 			LEFT JOIN student_details sd ON u.id = sd.user_id
 			WHERE u.role = 'siswa' AND LOWER(u.unit) = LOWER($1) AND COALESCE(u.is_active, TRUE) = TRUE
@@ -172,13 +173,13 @@ func createStudent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var termID int
-	err := database.DB.QueryRow("SELECT id FROM academic_terms ORDER BY id DESC LIMIT 1").Scan(&termID)
+	err := database.DB.QueryRow("SELECT id FROM academic_terms WHERE is_active = TRUE LIMIT 1").Scan(&termID)
 	if err == sql.ErrNoRows {
-		err = database.DB.QueryRow("INSERT INTO academic_terms (term_name, year) VALUES ('Semester 1', '2026/2027') RETURNING id").Scan(&termID)
+		err = database.DB.QueryRow("INSERT INTO academic_terms (term_name, year, is_active) VALUES ('Semester 1', '2026/2027', TRUE) RETURNING id").Scan(&termID)
 	}
 	if err != nil {
 		log.Println("Term DB Error:", err)
-		http.Error(w, "Server term initialization error", http.StatusInternalServerError)
+		http.Error(w, "Sistem belum memiliki tahun ajaran aktif.", http.StatusInternalServerError)
 		return
 	}
 
@@ -191,17 +192,27 @@ func createStudent(w http.ResponseWriter, r *http.Request) {
 	var newID int
 	var existingActive bool
 	var existingRole string
+	var existingUnit string
 
-	err = tx.QueryRow(`SELECT id, COALESCE(is_active, TRUE), role FROM users WHERE email = $1`, req.Email).Scan(&newID, &existingActive, &existingRole)
-	if err == nil {
+	err = tx.QueryRow(`SELECT id, COALESCE(is_active, TRUE), role, COALESCE(unit, '') FROM users WHERE email = $1`, req.Email).Scan(&newID, &existingActive, &existingRole, &existingUnit)
+	switch err {
+	case nil:
 		if existingActive {
 			tx.Rollback()
-			http.Error(w, "Email sudah digunakan oleh pengguna lain.", http.StatusBadRequest)
+			if existingRole == "siswa" {
+				if !strings.EqualFold(existingUnit, req.Unit) {
+					http.Error(w, "Gagal: Email sudah terdaftar sebagai siswa aktif di unit " + strings.ToUpper(existingUnit) + ".", http.StatusBadRequest)
+				} else {
+					http.Error(w, "Gagal: Siswa dengan email ini sudah terdaftar dan berstatus aktif di kelas/angkatan lain.", http.StatusBadRequest)
+				}
+			} else {
+				http.Error(w, "Gagal: Email ini sudah digunakan oleh pengguna aktif (" + existingRole + ").", http.StatusBadRequest)
+			}
 			return
 		}
 		if existingRole != "siswa" {
 			tx.Rollback()
-			http.Error(w, "Email ini sudah digunakan oleh akun dengan hak akses selain siswa.", http.StatusBadRequest)
+			http.Error(w, "Email ini sudah digunakan oleh akun non-aktif dengan hak akses selain siswa.", http.StatusBadRequest)
 			return
 		}
 
@@ -212,7 +223,7 @@ func createStudent(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Error reactivating user record", http.StatusInternalServerError)
 			return
 		}
-	} else if err == sql.ErrNoRows {
+	case sql.ErrNoRows:
 		err = tx.QueryRow(`
 			INSERT INTO users (name, email, role, unit, is_active)
 			VALUES ($1, $2, 'siswa', $3, TRUE) RETURNING id
@@ -224,7 +235,7 @@ func createStudent(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Error creating user record", http.StatusInternalServerError)
 			return
 		}
-	} else {
+	default:
 		tx.Rollback()
 		log.Println("Check user query:", err)
 		http.Error(w, "Database error", http.StatusInternalServerError)
@@ -370,13 +381,13 @@ func HandleBulkStudents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var termID int
-	err := database.DB.QueryRow("SELECT id FROM academic_terms ORDER BY id DESC LIMIT 1").Scan(&termID)
+	err := database.DB.QueryRow("SELECT id FROM academic_terms WHERE is_active = TRUE LIMIT 1").Scan(&termID)
 	if err == sql.ErrNoRows {
-		err = database.DB.QueryRow("INSERT INTO academic_terms (term_name, year) VALUES ('Semester 1', '2026/2027') RETURNING id").Scan(&termID)
+		err = database.DB.QueryRow("INSERT INTO academic_terms (term_name, year, is_active) VALUES ('Semester 1', '2026/2027', TRUE) RETURNING id").Scan(&termID)
 	}
 	if err != nil {
 		log.Println("Term DB Error:", err)
-		http.Error(w, "Server term initialization error", http.StatusInternalServerError)
+		http.Error(w, "Sistem belum memiliki tahun ajaran aktif.", http.StatusInternalServerError)
 		return
 	}
 
@@ -399,7 +410,7 @@ func HandleBulkStudents(w http.ResponseWriter, r *http.Request) {
 		
 		if err == nil {
 			if existingRole != "siswa" {
-				continue // Skip importing since they are not a student
+				continue
 			}
 			if !existingActive {
 				_, err = tx.Exec(`UPDATE users SET is_active = TRUE, name = $1, unit = $2 WHERE id = $3`, student.Name, req.Unit, newID)

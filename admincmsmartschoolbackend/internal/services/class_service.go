@@ -131,14 +131,14 @@ func getClasses(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Scan error: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-
 		var studentCount, teacherCount int
 		database.DB.QueryRow(`
 			SELECT COUNT(*) 
 			FROM student_classes sc 
 			JOIN academic_terms at ON sc.academic_term_id = at.id
 			JOIN users u ON sc.user_id = u.id 
-			WHERE sc.class_id = $1 AND COALESCE(u.is_active, TRUE) = TRUE AND at.is_active = TRUE
+			WHERE sc.class_id = $1 AND COALESCE(u.is_active, TRUE) = TRUE 
+			  AND at.id = (SELECT id FROM academic_terms WHERE is_active = TRUE ORDER BY id DESC LIMIT 1)
 		`, c.ID).Scan(&studentCount)
 		
 		database.DB.QueryRow(`
@@ -146,7 +146,8 @@ func getClasses(w http.ResponseWriter, r *http.Request) {
 			FROM teacher_classes tc 
 			JOIN academic_terms at ON tc.academic_term_id = at.id
 			JOIN users u ON tc.user_id = u.id 
-			WHERE tc.class_id = $1 AND COALESCE(u.is_active, TRUE) = TRUE AND at.is_active = TRUE
+			WHERE tc.class_id = $1 AND COALESCE(u.is_active, TRUE) = TRUE 
+			  AND at.id = (SELECT id FROM academic_terms WHERE is_active = TRUE ORDER BY id DESC LIMIT 1)
 		`, c.ID).Scan(&teacherCount)
 		
 		var mainTeacher sql.NullString
@@ -155,7 +156,8 @@ func getClasses(w http.ResponseWriter, r *http.Request) {
 			FROM teacher_classes tc 
 			JOIN academic_terms at ON tc.academic_term_id = at.id
 			JOIN users u ON tc.user_id = u.id 
-			WHERE tc.class_id = $1 AND tc.is_homeroom = TRUE AND COALESCE(u.is_active, TRUE) = TRUE AND at.is_active = TRUE
+			WHERE tc.class_id = $1 AND tc.is_homeroom = TRUE AND COALESCE(u.is_active, TRUE) = TRUE 
+			  AND at.id = (SELECT id FROM academic_terms WHERE is_active = TRUE ORDER BY id DESC LIMIT 1)
 		`, c.ID).Scan(&mainTeacher)
 		
 		if err == nil && mainTeacher.Valid {
@@ -202,9 +204,15 @@ func createClass(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var termID int
+	errTerm := database.DB.QueryRow("SELECT id FROM academic_terms WHERE is_active = TRUE LIMIT 1").Scan(&termID)
+	if errTerm != nil {
+		_ = database.DB.QueryRow("INSERT INTO academic_terms (term_name, year, is_active) VALUES ('Semester 1', '2026/2027', TRUE) RETURNING id").Scan(&termID)
+	}
+
 	if len(req.TeacherIDs) > 0 {
 		for _, tID := range req.TeacherIDs {
-			_, errIns := database.DB.Exec("INSERT INTO teacher_classes (user_id, class_id, is_homeroom) VALUES ($1, $2, TRUE) ON CONFLICT (user_id, class_id) DO UPDATE SET is_homeroom = TRUE", tID, newID)
+			_, errIns := database.DB.Exec("INSERT INTO teacher_classes (user_id, class_id, is_homeroom, academic_term_id) VALUES ($1, $2, TRUE, $3) ON CONFLICT (user_id, class_id, academic_term_id) DO UPDATE SET is_homeroom = TRUE", tID, newID, termID)
 			if errIns != nil {
 				http.Error(w, "Insert teacher mapping error: "+errIns.Error(), http.StatusInternalServerError)
 				return
@@ -234,11 +242,17 @@ func updateClass(w http.ResponseWriter, r *http.Request, id int) {
 		return
 	}
 
-	database.DB.Exec(`DELETE FROM teacher_classes WHERE class_id = $1 AND is_homeroom = TRUE`, id)
+	var termID int
+	errTerm := database.DB.QueryRow("SELECT id FROM academic_terms WHERE is_active = TRUE LIMIT 1").Scan(&termID)
+	if errTerm != nil {
+		_ = database.DB.QueryRow("INSERT INTO academic_terms (term_name, year, is_active) VALUES ('Semester 1', '2026/2027', TRUE) RETURNING id").Scan(&termID)
+	}
+
+	database.DB.Exec(`DELETE FROM teacher_classes WHERE class_id = $1 AND is_homeroom = TRUE AND academic_term_id = $2`, id, termID)
 	
 	if len(req.TeacherIDs) > 0 {
 		for _, tID := range req.TeacherIDs {
-			_, errIns := database.DB.Exec("INSERT INTO teacher_classes (user_id, class_id, is_homeroom) VALUES ($1, $2, TRUE) ON CONFLICT (user_id, class_id) DO UPDATE SET is_homeroom = TRUE", tID, id)
+			_, errIns := database.DB.Exec("INSERT INTO teacher_classes (user_id, class_id, is_homeroom, academic_term_id) VALUES ($1, $2, TRUE, $3) ON CONFLICT (user_id, class_id, academic_term_id) DO UPDATE SET is_homeroom = TRUE", tID, id, termID)
 			if errIns != nil {
 				http.Error(w, "Update teacher mapping error: "+errIns.Error(), http.StatusInternalServerError)
 				return
