@@ -121,7 +121,7 @@ func getStudents(w http.ResponseWriter, r *http.Request) {
 			JOIN academic_terms at ON sc.academic_term_id = at.id
 			JOIN classes c ON sc.class_id = c.id
 			LEFT JOIN student_details sd ON u.id = sd.user_id
-			WHERE u.role = 'siswa' AND c.id = $1
+			WHERE u.role = 'siswa' AND c.id = $1 AND COALESCE(u.is_active, TRUE) = TRUE 
 			  AND at.id = (SELECT id FROM academic_terms WHERE is_active = TRUE ORDER BY id DESC LIMIT 1)
 			ORDER BY u.name ASC
 		`
@@ -131,7 +131,7 @@ func getStudents(w http.ResponseWriter, r *http.Request) {
 			SELECT DISTINCT u.id, u.name, u.email, COALESCE(sd.nisn, ''), COALESCE(u.unit, ''), 0, '', COALESCE(u.is_active, TRUE)
 			FROM users u
 			LEFT JOIN student_details sd ON u.id = sd.user_id
-			WHERE u.role = 'siswa' AND LOWER(u.unit) = LOWER($1)
+			WHERE u.role = 'siswa' AND LOWER(u.unit) = LOWER($1) AND COALESCE(u.is_active, TRUE) = TRUE
 			ORDER BY u.name ASC
 		`
 		rows, err = database.DB.Query(query, unitStr)
