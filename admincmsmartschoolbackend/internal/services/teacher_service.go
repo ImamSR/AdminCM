@@ -81,7 +81,7 @@ func getTeachers(w http.ResponseWriter, r *http.Request) {
 			COALESCE(u.is_active, TRUE)
 		FROM users u
 		LEFT JOIN teachers t ON u.id = t.user_id
-		WHERE u.role IN ('guru', 'wakil_kepala_sekolah', 'kepala_sekolah') AND COALESCE(u.is_active, TRUE) = TRUE
+		WHERE u.role IN ('guru', 'wakil_kepala_sekolah', 'kepala_sekolah')
 	`
 	
 	var rows *sql.Rows

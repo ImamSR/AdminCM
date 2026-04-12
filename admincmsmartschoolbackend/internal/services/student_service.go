@@ -115,23 +115,23 @@ func getStudents(w http.ResponseWriter, r *http.Request) {
 
 	if classIDStr != "" {
 		query = `
-			SELECT DISTINCT u.id, u.name, u.email, COALESCE(sd.nisn, ''), COALESCE(u.unit, ''), c.id, COALESCE(c.name, '')
+			SELECT DISTINCT u.id, u.name, u.email, COALESCE(sd.nisn, ''), COALESCE(u.unit, ''), c.id, COALESCE(c.name, ''), COALESCE(u.is_active, TRUE)
 			FROM users u
 			JOIN student_classes sc ON u.id = sc.user_id
 			JOIN academic_terms at ON sc.academic_term_id = at.id
 			JOIN classes c ON sc.class_id = c.id
 			LEFT JOIN student_details sd ON u.id = sd.user_id
-			WHERE u.role = 'siswa' AND c.id = $1 AND COALESCE(u.is_active, TRUE) = TRUE 
+			WHERE u.role = 'siswa' AND c.id = $1
 			  AND at.id = (SELECT id FROM academic_terms WHERE is_active = TRUE ORDER BY id DESC LIMIT 1)
 			ORDER BY u.name ASC
 		`
 		rows, err = database.DB.Query(query, classIDStr)
 	} else {
 		query = `
-			SELECT DISTINCT u.id, u.name, u.email, COALESCE(sd.nisn, ''), COALESCE(u.unit, ''), 0, ''
+			SELECT DISTINCT u.id, u.name, u.email, COALESCE(sd.nisn, ''), COALESCE(u.unit, ''), 0, '', COALESCE(u.is_active, TRUE)
 			FROM users u
 			LEFT JOIN student_details sd ON u.id = sd.user_id
-			WHERE u.role = 'siswa' AND LOWER(u.unit) = LOWER($1) AND COALESCE(u.is_active, TRUE) = TRUE
+			WHERE u.role = 'siswa' AND LOWER(u.unit) = LOWER($1)
 			ORDER BY u.name ASC
 		`
 		rows, err = database.DB.Query(query, unitStr)
@@ -146,7 +146,7 @@ func getStudents(w http.ResponseWriter, r *http.Request) {
 	var students []models.StudentDetail
 	for rows.Next() {
 		var s models.StudentDetail
-		if err := rows.Scan(&s.ID, &s.Name, &s.Email, &s.NISN, &s.Unit, &s.ClassID, &s.ClassName); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.Email, &s.NISN, &s.Unit, &s.ClassID, &s.ClassName, &s.IsActive); err != nil {
 			log.Println("Scan error:", err)
 			continue
 		}

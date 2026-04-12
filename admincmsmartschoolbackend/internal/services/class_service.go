@@ -108,7 +108,7 @@ func getClasses(w http.ResponseWriter, r *http.Request) {
 	unit := r.URL.Query().Get("unit")
 	
 	query := `
-		SELECT c.id, c.name, COALESCE(c.jenjang, ''), COALESCE(c.unit, ''), c.grade, COALESCE(c.class_name, '')
+		SELECT c.id, c.name, COALESCE(c.jenjang, ''), COALESCE(c.unit, ''), c.grade, COALESCE(c.class_name, ''), COALESCE(c.gender, '')
 		FROM classes c
 	`
 	args := []interface{}{}
@@ -128,7 +128,7 @@ func getClasses(w http.ResponseWriter, r *http.Request) {
 	var classes []models.ClassDetail
 	for rows.Next() {
 		var c models.ClassDetail
-		if err := rows.Scan(&c.ID, &c.Name, &c.Level, &c.Unit, &c.Grade, &c.ClassName); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Level, &c.Unit, &c.Grade, &c.ClassName, &c.Gender); err != nil {
 			http.Error(w, "Scan error: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -192,13 +192,11 @@ func createClass(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	grade := 1
-
 	var newID int
 	err := database.DB.QueryRow(`
-		INSERT INTO classes (name, jenjang, unit, grade, class_name) 
-		VALUES ($1, '', $2, $3, '') RETURNING id
-	`, req.Name, req.Unit, grade).Scan(&newID)
+		INSERT INTO classes (name, jenjang, unit, grade, class_name, gender) 
+		VALUES ($1, '', $2, $3, '', $4) RETURNING id
+	`, req.Name, req.Unit, req.Grade, req.Gender).Scan(&newID)
 	
 	if err != nil {
 		http.Error(w, "Insert error: "+err.Error(), http.StatusInternalServerError)
@@ -246,9 +244,9 @@ func updateClass(w http.ResponseWriter, r *http.Request, id int) {
 
 	_, err := database.DB.Exec(`
 		UPDATE classes 
-		SET name = $1
-		WHERE id = $2
-	`, req.Name, id)
+		SET name = $1, grade = $2, gender = $3
+		WHERE id = $4
+	`, req.Name, req.Grade, req.Gender, id)
 	
 	if err != nil {
 		http.Error(w, "Update error: "+err.Error(), http.StatusInternalServerError)

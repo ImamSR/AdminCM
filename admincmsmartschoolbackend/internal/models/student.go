@@ -8,6 +8,7 @@ type StudentDetail struct {
 	Unit      string `json:"unit"`
 	ClassID   int    `json:"class_id"`
 	ClassName string `json:"class_name"`
+	IsActive  bool   `json:"is_active"`
 }
 
 type StudentCreateReq struct {

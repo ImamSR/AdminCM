@@ -30,17 +30,23 @@ func HandleDashboardStats(w http.ResponseWriter, r *http.Request) {
 	var stats models.DashboardStats
 
 	studentQuery := `
-		SELECT COUNT(DISTINCT s.id) 
-		FROM students s
-		JOIN users u ON s.user_id = u.id
-		WHERE u.role = 'siswa' AND COALESCE(u.is_active, TRUE) = TRUE AND ($1 = 'ALL' OR UPPER(u.unit) = $1)
+		SELECT COUNT(DISTINCT u.id) 
+		FROM users u
+		JOIN student_classes sc ON u.id = sc.user_id
+		JOIN academic_terms at ON sc.academic_term_id = at.id
+		WHERE u.role = 'siswa' 
+		  AND COALESCE(u.is_active, TRUE) = TRUE 
+		  AND at.is_active = TRUE
+		  AND ($1 = 'ALL' OR UPPER(u.unit) = $1)
 	`
 	database.DB.QueryRow(studentQuery, unit).Scan(&stats.TotalStudents)
 
 	teacherQuery := `
 		SELECT COUNT(id) 
 		FROM users u
-		WHERE u.role IN ('guru', 'wali_kelas', 'kepala_sekolah', 'wakil_kepala_sekolah') AND COALESCE(u.is_active, TRUE) = TRUE AND ($1 = 'ALL' OR UPPER(u.unit) = $1)
+		WHERE u.role IN ('guru', 'wali_kelas', 'kepala_sekolah', 'wakil_kepala_sekolah') 
+		  AND COALESCE(u.is_active, TRUE) = TRUE 
+		  AND ($1 = 'ALL' OR LOWER($1) = ANY(string_to_array(LOWER(u.unit), ',')))
 	`
 	database.DB.QueryRow(teacherQuery, unit).Scan(&stats.TotalTeachers)
 	classQuery := `

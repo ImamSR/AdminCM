@@ -7,7 +7,7 @@ type Class struct {
 	Name        string    `json:"name"`
 	Level       string    `json:"level"`
 	Unit        string    `json:"unit"`
-	Grade       int       `json:"grade"`
+	Grade       string    `json:"grade"`
 	ClassName   *string   `json:"class_name"`
 	CreatedAt   time.Time `json:"created_at,omitempty"`
 }
@@ -17,8 +17,9 @@ type ClassDetail struct {
 	Name         string `json:"name"`
 	Level        string `json:"level"`
 	Unit         string `json:"unit"`
-	Grade        int    `json:"grade"`
+	Grade        string `json:"grade"`
 	ClassName    string `json:"class_name"`
+	Gender       string `json:"gender"`
 	Teacher      string `json:"teacher"`
 	TeacherCount int    `json:"teacherCount"`
 	StudentCount int    `json:"studentCount"`
@@ -27,11 +28,15 @@ type ClassDetail struct {
 type ClassCreateReq struct {
 	Name       string `json:"name"`
 	Unit       string `json:"unit"`
+	Grade      string `json:"grade"`
+	Gender     string `json:"gender"`
 	TeacherIDs []int  `json:"teacher_ids"`
 }
 
 type ClassUpdateReq struct {
 	Name       string `json:"name"`
+	Grade      string `json:"grade"`
+	Gender     string `json:"gender"`
 	TeacherIDs []int  `json:"teacher_ids"`
 }
 
