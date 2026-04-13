@@ -21,6 +21,8 @@ func main() {
 
 	http.HandleFunc("/api/v1/admins", middleware.RequireAuth(services.HandleAdmins))
 	http.HandleFunc("/api/v1/admins/", middleware.RequireAuth(services.HandleAdminByID))
+	http.HandleFunc("/api/v1/users", middleware.RequireAuth(services.HandlePimpinanUsers))
+	http.HandleFunc("/api/v1/users/", middleware.RequireAuth(services.HandlePimpinanUserByID))
 	http.HandleFunc("/api/v1/banners", middleware.RequireAuth(services.HandleBanners))
 	http.HandleFunc("/api/v1/banners/", middleware.RequireAuth(services.HandleBannerByID))
 	
