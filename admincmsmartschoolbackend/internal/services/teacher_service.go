@@ -139,6 +139,11 @@ func createTeacher(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if strings.Contains(req.Unit, ",") {
+		http.Error(w, "Pilih maksimal 1 unit sekolah", http.StatusBadRequest)
+		return
+	}
+
 	tx, err := database.DB.Begin()
 	if err != nil {
 		http.Error(w, "Transaction error: "+err.Error(), http.StatusInternalServerError)
@@ -239,6 +244,11 @@ func updateTeacher(w http.ResponseWriter, r *http.Request, id int) {
 
 	if claims.Role != "superadmin" {
 		req.Unit = claims.Unit
+	}
+
+	if strings.Contains(req.Unit, ",") {
+		http.Error(w, "Pilih maksimal 1 unit sekolah", http.StatusBadRequest)
+		return
 	}
 
 	tx, err := database.DB.Begin()

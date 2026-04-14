@@ -259,7 +259,7 @@ func updateClass(w http.ResponseWriter, r *http.Request, id int) {
 		_ = database.DB.QueryRow("INSERT INTO academic_terms (term_name, year, is_active) VALUES ('Semester 1', '2026/2027', TRUE) RETURNING id").Scan(&termID)
 	}
 
-	database.DB.Exec(`DELETE FROM teacher_classes WHERE class_id = $1 AND is_homeroom = TRUE AND academic_term_id = $2`, id, termID)
+	database.DB.Exec(`UPDATE teacher_classes SET is_homeroom = FALSE WHERE class_id = $1 AND is_homeroom = TRUE AND academic_term_id = $2`, id, termID)
 	
 	if len(req.TeacherIDs) > 0 {
 		for _, tID := range req.TeacherIDs {

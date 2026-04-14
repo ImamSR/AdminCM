@@ -142,7 +142,7 @@ func bindTeacherToClass(w http.ResponseWriter, r *http.Request, classID int) {
 			_, err := database.DB.Exec(`
 				INSERT INTO teacher_classes (user_id, class_id, is_homeroom, academic_term_id)
 				VALUES ($1, $2, FALSE, $3)
-				ON CONFLICT (user_id, class_id, academic_term_id) DO UPDATE SET is_homeroom = FALSE
+				ON CONFLICT (user_id, class_id, academic_term_id) DO NOTHING
 			`, uID, classID, termID)
 			
 			if err != nil {
