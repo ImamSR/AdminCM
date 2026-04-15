@@ -1,16 +1,14 @@
 package services
 
 import (
-	"encoding/json"
-	"net/http"
 	"admincmsmartschoolbackend/internal/database"
 	"admincmsmartschoolbackend/internal/models"
+	"encoding/json"
+	"net/http"
 )
 
 func GetAdmins(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	setCorsHeaders(w)
 
 	if r.Method == "OPTIONS" {
 		w.WriteHeader(http.StatusOK)

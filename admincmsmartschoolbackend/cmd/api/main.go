@@ -60,9 +60,15 @@ func main() {
 	http.HandleFunc("/api/v1/subject-unbind-student/", middleware.RequireAuth(services.HandleSubjectStudentUnbind))
 
 	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8081"
+	}
 
 	fmt.Printf("Backend HTTP Server starting on :%s...\n", port)
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
+	
+	handlerWithCORS := middleware.CORS(http.DefaultServeMux)
+	
+	if err := http.ListenAndServe(":"+port, handlerWithCORS); err != nil {
 		log.Fatal("ListenAndServe:", err)
 	}
 }

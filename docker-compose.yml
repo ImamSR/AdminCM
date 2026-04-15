@@ -7,6 +7,7 @@ services:
     restart: unless-stopped
     networks:
       - webnet
+      - webhookrt_default
 
   be1:
     build:
@@ -22,6 +23,7 @@ services:
     networks:
       - webnet
       - newluminoed_app-network
+      - webhookrt_default
 
   nginx:
     image: nginx:alpine
@@ -60,4 +62,6 @@ networks:
   webnet:
     driver: bridge
   newluminoed_app-network:
+    external: true
+  webhookrt_default:
     external: true

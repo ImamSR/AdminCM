@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"admincmsmartschoolbackend/internal/database"
+
 	"github.com/golang-jwt/jwt/v5"
 	"google.golang.org/api/idtoken"
 )
@@ -28,7 +30,23 @@ type LoginResponse struct {
 }
 
 func HandleGoogleAuth(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	originsEnv := os.Getenv("ALLOWED_ORIGINS")
+	allowedOrigins := strings.Split(originsEnv, ",")
+
+	origin := r.Header.Get("Origin")
+	isAllowed := false
+	for _, o := range allowedOrigins {
+		if strings.TrimSpace(o) == origin {
+			isAllowed = true
+			break
+		}
+	}
+
+	if isAllowed {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Vary", "Origin")
+	}
+
 	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
@@ -112,7 +130,7 @@ func HandleGoogleAuth(w http.ResponseWriter, r *http.Request) {
 		Token: tokenString,
 	}
 	resp.User.ID = user.ID
-	resp.User.Name = name 
+	resp.User.Name = name
 	resp.User.Email = user.Email
 	resp.User.Role = user.Role
 	resp.User.Unit = user.Unit
