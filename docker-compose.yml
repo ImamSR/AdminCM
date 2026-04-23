@@ -35,6 +35,7 @@ services:
     restart: unless-stopped
     networks:
       - webnet
+      - webhookrt_default
     depends_on:
       - fe1
       - be1
